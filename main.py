@@ -272,11 +272,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     count += enable_param[i]['Байт']
 
                     for ii in enable_param[i]['Параметры']:
+                        # При условии, что тип данных float
                         if enable_param[i]['Параметры'][ii]['Тип данных'] == "float":
                             value = binary_to_float(get_bit(enable_param[i]['Значение в байтах']))
 
                             enable_param[i]['Параметры'][ii]['Значение'] = round(value, 1)
-
+                        # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов не ровно 1
                         elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] != 1:
                             if enable_param[i]['Параметры'][ii]['Тип данных'] == "int":
                                 value = 0
@@ -286,6 +287,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                                     count_pow += 1
 
                                 enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+
+                        # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов ровно 1
                         elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] == 1:
                                 value = enable_param[i]['Значение в байтах'][0]
 
@@ -300,6 +303,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                                 enable_param[i]['Параметры'][ii]['Значение'] = int(value)
 
+                        # В ином случае когда параметр занимает от 1 до 8 бит
                         else:
                             if enable_param[i]['Параметры'][ii]['Бит'] != "None":
                                 bit = get_bit(enable_param[i]['Значение в байтах'])
