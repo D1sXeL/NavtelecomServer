@@ -7,6 +7,8 @@ import math
 import json
 
 
+
+
 # response = "2a 3e 46 4c 45 58 b0 1e 1e"
 # res = bytearray()
 # for i in response.split(" "):
@@ -89,20 +91,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     conn, addr = s.accept()
 
     print("Connected by", addr)
+    print(conn)
 
     res = list()
-    # t = bytearray()
-    # t.append(int("0", 16))
-    # t.append(int("0", 16))
-    # t.append(int("0", 16))
-    #
-    # conn.send(t)
-    # quit()
+
     while True:
         data = conn.recv(1024)
-        # with open("test.txt", "w") as file:
-        #     file.write(str(data))
-        # sys.stdout.write(f"{data}")
         print(data)
         if chr(data[0]) == "@":
             if chr(data[18]) == "S":
@@ -197,7 +191,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                 bitfield = data[26:]
 
-                # data_size = bytearray(i for i in range(24, ))
 
                 head = bytearray(int(i, 16) for i in "2a 3c 46 4c 45 58 b0 1e 1e".split(" "))
                 res = bytearray()
@@ -226,7 +219,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 conn.send(res)
         elif chr(data[0]) == "~":
             preamble = "".join([chr(data[i]) for i in range(0, 3)])
-            print(chr(data[1]))
             if chr(data[1]) == "T":
                 eventindex = bytearray(data[i] for i in range(2, 6))
 
@@ -237,16 +229,20 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                 count = 0
                 for i in enable_param:
-                    enable_param[i]["Значение"] = [telemat[i] for i in range(count, count+int(enable_param[i]['Байт']))][::-1]
+                    enable_param[i]["Значение в байт"] = [telemat[i] for i in range(count, count+int(enable_param[i]['Байт']))][::-1]
                     count += int(enable_param[i]['Байт'])
 
+                # for i in enable_param['8']['Байт']:
+                #     print(f'{i:08b}')
+                for i in enable_param['8']['Значение в байт']:
+                    print(f"{i:08b}")
                 for i in enable_param:
                     if enable_param[i]['Байт'] == 4:
 
                         value = 0
                         count = 0
-                        for ii in enable_param[i]['Значение']:
-                            value += enable_param[i]['Значение'][count] * math.pow(256, len(enable_param[i]['Значение'])-count-1)
+                        for ii in enable_param[i]['Значение в байт']:
+                            value += enable_param[i]['Значение в байт'][count] * math.pow(256, len(enable_param[i]['Значение в байт'])-count-1)
                             count += 1
 
                         if enable_param[i]['Название'].find("долгота") != -1 or enable_param[i]['Название'].find(
@@ -257,15 +253,22 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     elif enable_param[i]['Байт'] == 2:
                         value = 0
                         count = 0
-                        for ii in enable_param[i]['Значение']:
+                        for ii in enable_param[i]['Значение в байт']:
                             if count != 1:
-                                value += enable_param[i]['Значение'][count] * 16 * math.pow(16, len(
-                                    enable_param[i]['Значение']) - count - 1)
+                                value += enable_param[i]['Значение в байт'][count] * 16 * math.pow(16, len(
+                                    enable_param[i]['Значение в байт']) - count - 1)
                             else:
-                                value += enable_param[i]['Значение'][count] * math.pow(16, len(
-                                    enable_param[i]['Значение']) - count - 1)
+                                value += enable_param[i]['Значение в байт'][count] * math.pow(16, len(
+                                    enable_param[i]['Значение в байт']) - count - 1)
                             count += 1
                         print(f"Параметр ({enable_param[i]['Название']})[{enable_param[i]['Параметр']}] - {value}")
+                    else:
+                        value = int(enable_param[i]['Значение в байт'][0])
+                        print(f"Параметр ({enable_param[i]['Название']})[{enable_param[i]['Параметр']}] - {value}")
+
+
+
+
 
             res = bytearray()
             # ~T
