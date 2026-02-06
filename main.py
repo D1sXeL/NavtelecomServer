@@ -178,16 +178,17 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 res.append(3)
                 res.append(0)
 
-
+                # CSd после заголовка
                 CSd = bytearray(int(i, 16) for i in "2a 3c 53".split(" "))
                 CSd_sum = xor_sum(CSd)
                 res.append(CSd_sum)
-                CSp_sum = xor_sum(res)
 
+                #CSp после добавления *<S
+                CSp_sum = xor_sum(res)
                 res.append(CSp_sum)
 
-                for i in "2a 3c 53".split(" "):
-                    res.append(int(i, 16))
+                for i in "*<S":
+                    res.append(ord(i))
 
 
                 conn.send(res)
@@ -217,7 +218,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 bit_enable_param = get_bit(data[26:])
 
                 # json файл с данными по параметрам(Название, Количество занимаемых байт и тд)
-                with open("Параметры.json", 'r') as file:
+                with open("Параметры edit.json", 'r') as file:
                     all_param = json.loads(file.read())
 
                 # Запись в словарь какие параметры включены для передачи
@@ -226,9 +227,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     if int(bit_enable_param[i-1]) == 1:
                         enable_param[i] = all_param[str(i)]
 
-                # bitfield = data[26:]
-
-                head = bytearray(int(i, 16) for i in "2a 3c 46 4c 45 58 b0 1e 1e".split(" "))
+                body = bytearray(int(i, 16) for i in "2a 3c 46 4c 45 58 b0 1e 1e".split(" "))
                 res = bytearray()
 
                 for i in preamble:
@@ -240,16 +239,17 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     res.append(i)
 
                 # Байт данный после заголовка
-                for i in len(head).to_bytes(length=2, byteorder="little"):
+                for i in len(body).to_bytes(length=2, byteorder="little"):
                     res.append(i)
 
-                CSd_sum = xor_sum(head)
+                # CSd тела
+                CSd_sum = xor_sum(body)
                 res.append(CSd_sum)
-                CSp_sum = xor_sum(res)
 
+                CSp_sum = xor_sum(res)
                 res.append(CSp_sum)
 
-                for i in head:
+                for i in body:
                     res.append(i)
 
                 conn.send(res)
@@ -277,35 +277,27 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             value = binary_to_float(get_bit(enable_param[i]['Значение в байтах']))
 
                             enable_param[i]['Параметры'][ii]['Значение'] = round(value, 1)
-                        # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов не ровно 1
-                        elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] != 1:
-                            if enable_param[i]['Параметры'][ii]['Тип данных'] == "int":
+
+                        # При условии, что тип данных int
+                        elif enable_param[i]['Параметры'][ii]['Тип данных'] == "int":
+                            # При условии, что параметр занимает все пространство в байтах, количество занимаемых байт параметром больше 1
+                            if enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] != 1:
                                 value = 0
                                 count_pow = 1
                                 for iii in enable_param[i]['Значение в байтах']:
-                                    value +=  iii*math.pow(256, len(enable_param[i]['Значение в байтах'])-count_pow)
+                                    value += iii * math.pow(256, len(enable_param[i]['Значение в байтах']) - count_pow)
                                     count_pow += 1
 
                                 enable_param[i]['Параметры'][ii]['Значение'] = int(value)
 
-                        # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов ровно 1
-                        elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] == 1:
+                            # При условии, что параметр занимает все пространство в байтах, количество занимаемых байт параметром равно 1
+                            elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] == 1:
                                 value = enable_param[i]['Значение в байтах'][0]
 
                                 enable_param[i]['Параметры'][ii]['Значение'] = int(value)
 
-                        # При условии, что в параметре всего один бит
-                        elif len(enable_param[i]['Параметры'][ii]['Бит']) == 1 and enable_param[i]['Параметры'][ii]['Бит'] != "None":
-                            if enable_param[i]['Параметры'][ii]['Тип данных'] == "bool":
-                                bit = get_bit(enable_param[i]['Значение в байтах'])
-
-                                value = bit[7-int(enable_param[i]['Параметры'][ii]['Бит'])]
-
-                                enable_param[i]['Параметры'][ii]['Значение'] = int(value)
-
-                        # В ином случае когда параметр занимает от 1 до 8 бит
-                        else:
-                            if enable_param[i]['Параметры'][ii]['Бит'] != "None":
+                            # При условии, что параметр занимает определенное количество БИТ в байте(Например, от 2-4)
+                            elif enable_param[i]['Параметры'][ii]['Бит'] != "None":
                                 bit = get_bit(enable_param[i]['Значение в байтах'])
 
                                 # value = bit[7 - int(enable_param[i]['Параметры'][ii]['Бит'])]
@@ -327,14 +319,85 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                                 enable_param[i]['Параметры'][ii]['Значение'] = int(value)
 
 
+                        # При условии, что тип данных bool
+                        elif enable_param[i]['Параметры'][ii]['Тип данных'] == "bool":
+                            if len(enable_param[i]['Параметры'][ii]['Бит']) == 1 and enable_param[i]['Параметры'][ii]['Бит'] != "None":
+                                bit = get_bit(enable_param[i]['Значение в байтах'])
+
+                                value = bit[7 - int(enable_param[i]['Параметры'][ii]['Бит'])]
+
+                                enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+
+                            # При условии, что параметр занимает все выделенное пространство для параметра в байтах
+                            elif enable_param[i]['Параметры'][ii]['Бит'] == "None":
+                                value = enable_param[i]['Значение в байтах'][0]
+
+                                enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+
+
+                print(enable_param)
+
+
+
+
+                        # # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов не ровно 1
+                        # elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] != 1:
+                        #     if enable_param[i]['Параметры'][ii]['Тип данных'] == "int":
+                        #         value = 0
+                        #         count_pow = 1
+                        #         for iii in enable_param[i]['Значение в байтах']:
+                        #             value +=  iii*math.pow(256, len(enable_param[i]['Значение в байтах'])-count_pow)
+                        #             count_pow += 1
+                        #
+                        #         enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+                        #
+                        # # При условии, что у параметра нет определенного бита, т.е. он занимает весь байт и количество байтов ровно 1
+                        # elif enable_param[i]['Параметры'][ii]['Бит'] == "None" and enable_param[i]['Байт'] == 1:
+                        #         value = enable_param[i]['Значение в байтах'][0]
+                        #
+                        #         enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+                        #
+                        # # При условии, что в параметре всего один бит
+                        # elif len(enable_param[i]['Параметры'][ii]['Бит']) == 1 and enable_param[i]['Параметры'][ii]['Бит'] != "None":
+                        #     if enable_param[i]['Параметры'][ii]['Тип данных'] == "bool":
+                        #         bit = get_bit(enable_param[i]['Значение в байтах'])
+                        #
+                        #         value = bit[7-int(enable_param[i]['Параметры'][ii]['Бит'])]
+                        #
+                        #         enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+                        #
+                        # # В ином случае когда параметр занимает от 1 до 8 бит
+                        # else:
+                        #     if enable_param[i]['Параметры'][ii]['Бит'] != "None":
+                        #         bit = get_bit(enable_param[i]['Значение в байтах'])
+                        #
+                        #         # value = bit[7 - int(enable_param[i]['Параметры'][ii]['Бит'])]
+                        #         bit_temp = enable_param[i]['Параметры'][ii]['Бит'].split("-")
+                        #         bit_st = int(bit_temp[0])
+                        #         bit_end = int(bit_temp[1])
+                        #         bit_order = [i for i in range(bit_st, bit_end+1)]
+                        #
+                        #         bit_str = str()
+                        #         for iii in bit_order:
+                        #             bit_str += bit[7-iii]
+                        #
+                        #         value = 0
+                        #
+                        #         count_pow = 1
+                        #         for iii in bit_str[::-1]:
+                        #             value += int(iii)*math.pow(2, len(bit_str)-count_pow)
+                        #             count_pow += 1
+                        #         enable_param[i]['Параметры'][ii]['Значение'] = int(value)
+
+
                 for i in enable_param:
                     for ii in enable_param[i]['Параметры']:
                         print(f"{enable_param[i]['Параметры'][ii]['Название']}: {enable_param[i]['Параметры'][ii]['Значение']}, Байт - {enable_param[i]['Байт']}")
 
                 res = bytearray()
                 # ~T
-                for i in "7e 54".split(" "):
-                    res.append(int(i, 16))
+                for i in "~T":
+                    res.append(ord(i))
 
                 # eventindex
                 for i in eventindex:
