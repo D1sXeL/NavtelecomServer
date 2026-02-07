@@ -1,3 +1,4 @@
+import time
 import struct
 import socket
 import os
@@ -5,7 +6,7 @@ import math
 import json
 from _thread import start_new_thread
 
-
+from prompt_toolkit.input import Input
 
 # response = "2a 3e 46 4c 45 58 b0 1e 1e"
 # res = bytearray()
@@ -21,6 +22,8 @@ from _thread import start_new_thread
 
 host = "127.0.0.1"
 port = 9000
+IMEI_address = dict()
+
 
 crc8_table = [
     0x00, 0x31, 0x62, 0x53, 0xC4, 0xF5, 0xA6, 0x97, 0xB9, 0x88, 0xDB, 0xEA, 0x7D, 0x4C, 0x1F, 0x2E,
@@ -281,6 +284,12 @@ def processing_telematics_message(telematic, enable_param):
     return param_value
 
 
+def check_connection(address):
+    for i in IMEI_address:
+        if IMEI_address[i] != False:
+            return True
+
+
 def listen_and_processing(connection, address):
     while True:
         try:
@@ -290,15 +299,18 @@ def listen_and_processing(connection, address):
             print("Соединение разорвано")
             break
 
+        print(data)
+
         if data == b"":
             print("Disconnected by", address)
             connection.close()
+            if check_connection(address):
+                IMEI_address[IMEI] = False
             break
 
         elif chr(data[0]) == "@":
             if chr(data[18]) == "S":
                 head = [data[i] for i in range(0, 16)]
-                print(head)
                 preamble, IDr, IDs, byte_data, CSd, CSp = get_head(head)
 
                 IMEI_pref = "".join([chr(data[i]) for i in range(16, 20)])
@@ -403,6 +415,8 @@ def listen_and_processing(connection, address):
 
                 conn.send(res)
 
+                IMEI_address[IMEI] = {"socket": connection, "IDs": IDr, "IDr": IDs}
+
         elif chr(data[0]) == "~":
 
             if chr(data[1]) == "T":
@@ -464,7 +478,68 @@ def listen_and_processing(connection, address):
         else:
             print("Disconnected by", address)
             connection.close()
+            if check_connection(address):
+                IMEI_address[IMEI] = False
             break
+
+
+def RCS_send():
+    IMEI = input("IMEI: ")
+    command = input("Command: ")
+
+    if command.find("*!CNCT_RCS") != -1:
+        temp = command.split(',')
+        ip_RCS = temp[0].split(" ")[1]
+        port = temp[1]
+        commID = temp[2]
+    else:
+        return
+
+    if IMEI in IMEI_address:
+        connection = IMEI_address[IMEI]['socket']
+        IDs = IMEI_address[IMEI]['IDs']
+        IDr = IMEI_address[IMEI]['IDr']
+    else:
+        print("Соединение с терминалом не установлено")
+        return
+
+    body = bytearray()
+    for i in "*!CNCT_RCS":
+        body.append(ord(i))
+
+    body.append(20)
+
+    for i in ip_RCS+",":
+        body.append(ord(i))
+
+    for i in port+",":
+        body.append(ord(i))
+
+    for i in commID:
+        body.append(ord(i))
+
+    print(body)
+
+    res = bytearray()
+
+    for i in "@NTC":
+        res.append(ord(i))
+
+    for i in IDr.to_bytes(length=4, byteorder="little"):
+        res.append(i)
+    for i in IDs.to_bytes(length=4, byteorder="little"):
+        res.append(i)
+
+    CSd = xor_sum(body)
+    res.append(CSd)
+
+    CSp = xor_sum(res)
+    res.append(CSp)
+    for i in body:
+        res.append(i)
+
+    connection.send(res)
+    print(res)
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -478,3 +553,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         print("Connected by", addr)
 
         start_new_thread(listen_and_processing, (conn,addr,))
+        time.sleep(3)
+        print(IMEI_address)
+        start_new_thread(RCS_send, ())
