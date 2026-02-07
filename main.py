@@ -1,12 +1,9 @@
 import struct
 import socket
-import time
-import sys
 import os
-import ast
 import math
 import json
-import re
+from _thread import start_new_thread
 
 
 
@@ -79,7 +76,7 @@ def write_log(IMEI, json_data, count_message = 0):
             count += 1
 
     else:
-        data[json_data['msg_number']] = param_value
+        data[json_data['msg_number']] = json_data
 
     with open(f"./log/log_{IMEI}.json", "w") as file:
         file.write(json.dumps(data))
@@ -162,16 +159,16 @@ def get_head(arr_byte):
     CSp: Контрольная сумма заголовка
     """
 
-    preamble = "".join([chr(data[i]) for i in range(0, 4)])
+    preamble = "".join([chr(arr_byte[i]) for i in range(0, 4)])
 
-    IDr = get_num([data[i] for i in range(4, 8)])
+    IDr = get_num([arr_byte[i] for i in range(4, 8)])
 
-    IDs = get_num([data[i] for i in range(8, 12)])
+    IDs = get_num([arr_byte[i] for i in range(8, 12)])
 
-    byte_data = get_num([data[i] for i in range(12, 14)])
+    byte_data = get_num([arr_byte[i] for i in range(12, 14)])
 
-    CSd = data[14]
-    CSp = data[15]
+    CSd = arr_byte[14]
+    CSp = arr_byte[15]
 
     return preamble, IDr, IDs, byte_data, CSd, CSp
 
@@ -192,7 +189,7 @@ def binary_to_float(binary_string):
     return float_value
 
 
-def processing_telematics_message(telematic):
+def processing_telematics_message(telematic, enable_param):
     """
     Обработка телематических данных
     :param telematic: телематические данные в формате байтов
@@ -284,23 +281,24 @@ def processing_telematics_message(telematic):
     return param_value
 
 
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((host, port))
-    s.listen()
-
-    conn, addr = s.accept()
-
-    print("Connected by", addr)
-
-    res = list()
-
+def listen_and_processing(connection, address):
     while True:
-        data = conn.recv(1024)
-        print(data)
-        if chr(data[0]) == "@":
+        try:
+            data = connection.recv(1024)
+        except socket.timeout:
+            connection.close()
+            print("Соединение разорвано")
+            break
+
+        if data == b"":
+            print("Disconnected by", address)
+            connection.close()
+            break
+
+        elif chr(data[0]) == "@":
             if chr(data[18]) == "S":
-                head = [data[i] for i in range(0, 15)]
+                head = [data[i] for i in range(0, 16)]
+                print(head)
                 preamble, IDr, IDs, byte_data, CSd, CSp = get_head(head)
 
                 IMEI_pref = "".join([chr(data[i]) for i in range(16, 20)])
@@ -318,7 +316,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 for i in "@NTC":
                     res.append(ord(i))
 
-                # Количество занимаемых байт идентификатором получателем и отправителем равна по 4
+                # Количество занимаемых байт идентификатором получателем и отправителем для каждого равна 4
                 for i in IDs.to_bytes(length=4, byteorder="little"):
                     res.append(i)
                 for i in IDr.to_bytes(length=4, byteorder="little"):
@@ -333,18 +331,17 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 CSd_sum = xor_sum(CSd)
                 res.append(CSd_sum)
 
-                #CSp после добавления *<S
+                # CSp после добавления *<S
                 CSp_sum = xor_sum(res)
                 res.append(CSp_sum)
 
                 for i in "*<S":
                     res.append(ord(i))
 
-
                 conn.send(res)
 
             elif chr(data[18]) == "F":
-                head = [data[i] for i in range(0, 15)]
+                head = [data[i] for i in range(0, 16)]
                 preamble, IDr, IDs, byte_data, CSd, CSp = get_head(head)
 
                 protocol = "".join([chr(data[i]) for i in range(16, 22)])
@@ -359,7 +356,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                 data_size = data[25]
 
-                print(preamble, IDr, IDs, byte_data, CSd, CSp, protocol, sign_protocol, protocol_version, struct_protocol, data_size)
+                print(preamble, IDr, IDs, byte_data, CSd, CSp, protocol, sign_protocol, protocol_version,
+                      struct_protocol, data_size)
 
                 enable_param_byte = dict()
                 count = 1
@@ -375,7 +373,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 # Запись в словарь какие параметры включены для передачи
                 enable_param = dict()
                 for i in range(1, len(bit_enable_param)):
-                    if int(bit_enable_param[i-1]) == 1:
+                    if int(bit_enable_param[i - 1]) == 1:
                         enable_param[i] = all_param[str(i)]
 
                 body = bytearray(int(i, 16) for i in "2a 3c 46 4c 45 58 b0 1e 1e".split(" "))
@@ -406,17 +404,16 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 conn.send(res)
 
         elif chr(data[0]) == "~":
-            preamble = "".join([chr(data[i]) for i in range(0, 3)])
 
             if chr(data[1]) == "T":
                 eventindex = bytearray(data[i] for i in range(2, 6))
 
-                telematic = bytearray(data[i] for i in range(6, len(data)-1))
+                telematic = bytearray(data[i] for i in range(6, len(data) - 1))
 
                 crc8 = data[-1]
                 print(crc8)
 
-                param_value = processing_telematics_message(telematic)
+                param_value = processing_telematics_message(telematic, enable_param)
 
                 write_log(IMEI, param_value)
 
@@ -443,11 +440,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                 occupy_byte = 0
                 for i in enable_param:
-                    occupy_byte += enable_param[iiii]['Байт']
+                    occupy_byte += enable_param[i]['Байт']
 
                 for count_message_while in range(0, count_message):
                     tel_mes.append(processing_telematics_message(
-                        telemat[count_message_while * occupy_byte:count_message_while * occupy_byte + occupy_byte]))
+                        telemat[count_message_while * occupy_byte:count_message_while * occupy_byte + occupy_byte], enable_param))
                     count_start_bit += 1
 
                 write_log(IMEI, tel_mes, count_message)
@@ -456,7 +453,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 res = bytearray()
 
                 for i in "~A":
-                    res.append(ord(iii))
+                    res.append(ord(i))
 
                 res.append(count_message)
 
@@ -464,5 +461,20 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
                 conn.send(res)
 
-        time.sleep(0.2)
+        else:
+            print("Disconnected by", address)
+            connection.close()
+            break
 
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind((host, port))
+    s.listen()
+
+    while True:
+        conn, addr = s.accept()
+        conn.settimeout(300)
+
+        print("Connected by", addr)
+
+        start_new_thread(listen_and_processing, (conn,addr,))
