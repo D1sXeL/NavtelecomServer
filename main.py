@@ -291,6 +291,8 @@ def check_connection(address):
 
 
 def listen_and_processing(connection, address):
+    global IMEI_address
+
     while True:
         try:
             data = connection.recv(1024)
@@ -484,62 +486,68 @@ def listen_and_processing(connection, address):
 
 
 def RCS_send():
-    IMEI = input("IMEI: ")
-    command = input("Command: ")
+    while True:
+        IMEI = input("IMEI: ")
+        command = input("Command: ")
 
-    if command.find("*!CNCT_RCS") != -1:
-        temp = command.split(',')
-        ip_RCS = temp[0].split(" ")[1]
-        port = temp[1]
-        commID = temp[2]
-    else:
-        return
+        if command.find("*!CNCT_RCS") != -1:
+            temp = command.split(',')
+            ip_RCS = temp[0].split(" ")[1]
+            port = temp[1]
+            commID = temp[2]
+        else:
+            return
 
-    if IMEI in IMEI_address:
-        connection = IMEI_address[IMEI]['socket']
-        IDs = IMEI_address[IMEI]['IDs']
-        IDr = IMEI_address[IMEI]['IDr']
-    else:
-        print("Соединение с терминалом не установлено")
-        return
+        if IMEI in IMEI_address:
+            connection = IMEI_address[IMEI]['socket']
+            IDs = IMEI_address[IMEI]['IDs']
+            IDr = IMEI_address[IMEI]['IDr']
+        else:
+            print("Соединение с терминалом не установлено")
+            return
 
-    body = bytearray()
-    for i in "*!CNCT_RCS":
-        body.append(ord(i))
+        body = bytearray()
+        for i in "*!CNCT_RCS":
+            body.append(ord(i))
 
-    body.append(20)
+        body.append(ord(" "))
 
-    for i in ip_RCS+",":
-        body.append(ord(i))
+        for i in ip_RCS+",":
+            body.append(ord(i))
 
-    for i in port+",":
-        body.append(ord(i))
+        for i in port+",":
+            body.append(ord(i))
 
-    for i in commID:
-        body.append(ord(i))
+        for i in commID:
+            body.append(ord(i))
 
-    print(body)
+        print(body)
 
-    res = bytearray()
+        res = bytearray()
 
-    for i in "@NTC":
-        res.append(ord(i))
+        for i in "@NTC":
+            res.append(ord(i))
 
-    for i in IDr.to_bytes(length=4, byteorder="little"):
-        res.append(i)
-    for i in IDs.to_bytes(length=4, byteorder="little"):
-        res.append(i)
+        for i in IDs.to_bytes(length=4, byteorder="little"):
+            res.append(i)
+        for i in IDr.to_bytes(length=4, byteorder="little"):
+            res.append(i)
 
-    CSd = xor_sum(body)
-    res.append(CSd)
+        for i in len(body).to_bytes(length=2, byteorder="little"):
+            res.append(i)
 
-    CSp = xor_sum(res)
-    res.append(CSp)
-    for i in body:
-        res.append(i)
 
-    connection.send(res)
-    print(res)
+        CSd = xor_sum(body)
+        res.append(CSd)
+
+        CSp = xor_sum(res)
+        res.append(CSp)
+        print(len(res))
+        for i in body:
+            res.append(i)
+
+        connection.send(res)
+        print(res)
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
