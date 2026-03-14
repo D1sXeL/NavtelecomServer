@@ -247,6 +247,22 @@ def processing_telematics_message(telematic, enable_param):
                         enable_param[i]['Параметры'][ii]['Значение'] = f"{(int(value)/36000000*60):.6f}"
                         param_value[enable_param[i]['Параметры'][ii]['Название']] = f"{(int(value)/36000000*60):.6f}"
 
+                    # can шина
+                    elif i == "53":
+                        if ii == "1":
+                            bit = get_bit(enable_param[i]['Значение в байтах'])
+
+                            value = 0
+                            count_pow = 1
+                            for iii in enable_param[i]['Значение в байтах']:
+                                value += iii * math.pow(256, len(enable_param[i]['Значение в байтах']) - count_pow)
+                                count_pow += 1
+
+                            if bit[-1] == "0":
+                                param_value["can_fuel_vlm"] = value
+                            else:
+                                param_value["can_fuel_lvl"] = value
+
                     else:
                         value = 0
                         count_pow = 1
@@ -265,25 +281,36 @@ def processing_telematics_message(telematic, enable_param):
 
                 # При условии, что параметр занимает определенное количество БИТ в байте(Например, от 2-4)
                 elif enable_param[i]['Параметры'][ii]['Бит'] != "None":
-                    bit = get_bit(enable_param[i]['Значение в байтах'])
+                    # Параметр занимает определенное количество БИТ
+                    if enable_param[i]['Параметры'][ii]['Бит'].find("-") != -1:
+                        bit = get_bit(enable_param[i]['Значение в байтах'])
 
-                    # value = bit[7 - int(enable_param[i]['Параметры'][ii]['Бит'])]
-                    bit_temp = enable_param[i]['Параметры'][ii]['Бит'].split("-")
-                    bit_st = int(bit_temp[0])
-                    bit_end = int(bit_temp[1])
-                    bit_order = [i for i in range(bit_st, bit_end + 1)]
+                        # value = bit[7 - int(enable_param[i]['Параметры'][ii]['Бит'])]
+                        bit_temp = enable_param[i]['Параметры'][ii]['Бит'].split("-")
+                        bit_st = int(bit_temp[0])
+                        bit_end = int(bit_temp[1])
+                        bit_order = [i for i in range(bit_st, bit_end + 1)]
 
-                    bit_str = str()
-                    for iii in bit_order:
-                        bit_str += bit[7 - iii]
+                        bit_str = str()
+                        for iii in bit_order:
+                            bit_str += bit[7 - iii]
 
-                    value = 0
+                        value = 0
 
-                    count_pow = 1
-                    for iii in bit_str[::-1]:
-                        value += int(iii) * math.pow(2, len(bit_str) - count_pow)
-                        count_pow += 1
-                    param_value[enable_param[i]['Параметры'][ii]['Название']] = int(value)
+                        count_pow = 1
+                        for iii in bit_str[::-1]:
+                            value += int(iii) * math.pow(2, len(bit_str) - count_pow)
+                            count_pow += 1
+                        param_value[enable_param[i]['Параметры'][ii]['Название']] = int(value)
+
+                    # Параметр занимает определенный бит
+                    else:
+                        # bit = get_bit(enable_param[i]['Значение в байтах'])
+                        #
+                        # param_value[enable_param[i]['Параметры'][ii]['Название']] = bit[int(enable_param[i]['Параметры'][ii]['Бит'])]
+                        print(enable_param[i]['Параметры'])
+                        print(enable_param[i]['Параметры'][ii])
+                        quit()
 
             # При условии, что тип данных bool
             elif enable_param[i]['Параметры'][ii]['Тип данных'] == "bool":
@@ -318,6 +345,7 @@ def listen_and_processing(connection, address):
             data = connection.recv(1024)
         except socket.timeout:
             connection.close()
+
             print("Соединение разорвано")
             break
 
@@ -325,6 +353,7 @@ def listen_and_processing(connection, address):
 
         if data == b"":
             print("Disconnected by", address)
+
             connection.close()
             if check_connection(address):
                 IMEI_address[IMEI] = False
@@ -335,14 +364,17 @@ def listen_and_processing(connection, address):
                 head = [data[i] for i in range(0, 16)]
                 preamble, IDr, IDs, byte_data, CSd, CSp = get_head(head)
 
-                IMEI_pref = "".join([chr(data[i]) for i in range(16, 20)])
+                # IMEI_pref = "".join([chr(data[i]) for i in range(16, 20)])
 
                 IMEI_list = [data[i] for i in range(20, len(data))]
                 IMEI = "".join([chr(i) for i in IMEI_list])
 
+                # Запись ip, port в БД
+                # cur.execute(f"update telematic_car set addr = {conn} where imei='{IMEI}'")
+
                 check_exists_file_log(IMEI)
 
-                print(preamble, IDr, IDs, byte_data, CSd, CSp, IMEI_pref, IMEI)
+                # print(preamble, IDr, IDs, byte_data, CSd, CSp, IMEI_pref, IMEI)
 
                 # Отправка ответа для авторизации
                 res = bytearray()
@@ -507,82 +539,66 @@ def listen_and_processing(connection, address):
             break
 
 
-def RCS_send():
-    while True:
-        IMEI = input("IMEI: ")
-        command = input("Command: ")
+def RCS_send(IMEI, command):
+    connection = IMEI_address[IMEI]['socket']
+    IDs = IMEI_address[IMEI]['IDs']
+    IDr = IMEI_address[IMEI]['IDr']
 
-        if command.find("*!CNCT_RCS") != -1:
-            temp = command.split(',')
-            ip_RCS = temp[0].split(" ")[1]
-            port = temp[1]
-            commID = temp[2]
-        else:
-            return
+    body = bytearray()
+    for i in command:
+        body.append(ord(i))
 
-        if IMEI in IMEI_address:
-            connection = IMEI_address[IMEI]['socket']
-            IDs = IMEI_address[IMEI]['IDs']
-            IDr = IMEI_address[IMEI]['IDr']
-        else:
-            print("Соединение с терминалом не установлено")
-            return
+    res = bytearray()
 
-        body = bytearray()
-        for i in "*!CNCT_RCS":
-            body.append(ord(i))
+    for i in "@NTC":
+        res.append(ord(i))
 
-        body.append(ord(" "))
+    for i in IDs.to_bytes(length=4, byteorder="little"):
+        res.append(i)
+    for i in IDr.to_bytes(length=4, byteorder="little"):
+        res.append(i)
 
-        for i in ip_RCS+",":
-            body.append(ord(i))
+    for i in len(body).to_bytes(length=2, byteorder="little"):
+        res.append(i)
 
-        for i in port+",":
-            body.append(ord(i))
+    CSd = xor_sum(body)
+    res.append(CSd)
 
-        for i in commID:
-            body.append(ord(i))
+    CSp = xor_sum(res)
+    res.append(CSp)
 
-        print(body)
+    for i in body:
+        res.append(i)
 
-        res = bytearray()
-
-        for i in "@NTC":
-            res.append(ord(i))
-
-        for i in IDs.to_bytes(length=4, byteorder="little"):
-            res.append(i)
-        for i in IDr.to_bytes(length=4, byteorder="little"):
-            res.append(i)
-
-        for i in len(body).to_bytes(length=2, byteorder="little"):
-            res.append(i)
+    connection.send(res)
 
 
-        CSd = xor_sum(body)
-        res.append(CSd)
+def socket_RCS():
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        server_address = (host, 9090)
+        s.bind(server_address)
 
-        CSp = xor_sum(res)
-        res.append(CSp)
-        print(len(res))
-        for i in body:
-            res.append(i)
+        while True:
+            data, client_address = s.recvfrom(1024)
 
-        connection.send(res)
-        print(res)
+            data = json.loads(data.decode("utf-8"))
+
+            if data['imei'] in IMEI_address:
+                if IMEI_address[data['imei']] != False:
+                    RCS_send(data['imei'], data['command'])
 
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((host, port))
-    s.listen()
+if __name__ == "__main__":
+    start_new_thread(socket_RCS, ())
 
-    while True:
-        conn, addr = s.accept()
-        conn.settimeout(300)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, port))
+        s.listen()
 
-        print("Connected by", addr)
+        while True:
+            conn, addr = s.accept()
+            conn.settimeout(300)
 
-        start_new_thread(listen_and_processing, (conn,addr,))
-        time.sleep(3)
-        print(IMEI_address)
-        start_new_thread(RCS_send, ())
+            print("Connected by", addr)
+
+            start_new_thread(listen_and_processing, (conn,addr,))
